@@ -2,7 +2,7 @@
 import { PropType } from 'vue';
 import { ElAside, ElScrollbar, ElIcon, ElImage } from 'element-plus'
 import { Star, Picture as IconPicture } from '@element-plus/icons-vue'
-import type { CombinedMovieData } from '../../../shared/types/ipc.types';
+import type { CombinedMovieData } from '@/shared/types/ipc.types';
 
 defineProps({
   filteredMovies: { type: Array as PropType<CombinedMovieData[]>, required: true },

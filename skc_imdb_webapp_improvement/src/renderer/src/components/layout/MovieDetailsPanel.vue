@@ -2,7 +2,7 @@
 import type { PropType } from 'vue';
 import { ElMain, ElIcon, ElImage } from 'element-plus'
 import { Star, Picture as IconPicture, Film, Link } from '@element-plus/icons-vue'
-import type { CombinedMovieData, SKCSession } from '../../../shared/types/ipc.types';
+import type { CombinedMovieData, SKCSession } from '@/shared/types/ipc.types';
 // Import necessary formatters (ensure path is correct relative to this file)
 import { formatRuntime, formatGroupDateTitle } from '../../utils/formatters'
 
