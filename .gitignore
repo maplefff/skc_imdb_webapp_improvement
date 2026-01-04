@@ -1,0 +1,34 @@
+# Dependencies
+**/node_modules/
+**/dist/
+**/out/
+
+# Electron
+**/release/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Build outputs
+*.tsbuildinfo
+
+# Lock files (optional - uncomment if you want to ignore them)
+# package-lock.json
+# yarn.lock
