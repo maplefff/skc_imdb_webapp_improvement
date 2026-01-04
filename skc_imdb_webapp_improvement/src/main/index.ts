@@ -22,6 +22,7 @@ let mainWindow: BrowserWindow | null = null;
 function createWindow(): void {
     mainWindow = new BrowserWindow({
         ...MAIN_WINDOW_CONFIG,
+        title: APP_NAME, // 設置視窗標題
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
             sandbox: false
