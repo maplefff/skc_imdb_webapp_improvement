@@ -1,34 +1,11 @@
-# Dependencies
-**/node_modules/
-**/dist/
-**/out/
+# Ignore everything except skc_imdb_webapp_improvement
+/*
+!/.gitignore
+!/skc_imdb_webapp_improvement/
 
-# Electron
-**/release/
-
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Environment
-.env
-.env.local
-
-# Build outputs
-*.tsbuildinfo
-
-# Lock files (optional - uncomment if you want to ignore them)
-# package-lock.json
-# yarn.lock
+# Inside skc_imdb_webapp_improvement, ignore standard items
+skc_imdb_webapp_improvement/node_modules/
+skc_imdb_webapp_improvement/dist/
+skc_imdb_webapp_improvement/out/
+skc_imdb_webapp_improvement/release/
+skc_imdb_webapp_improvement/.DS_Store
