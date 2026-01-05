@@ -21,7 +21,8 @@ export function processFilmTypeAndModifier(rawFilmType: string | undefined | nul
   if (lowerCaseType.includes('dolby')) {
     groupName = 'Dolby Cinema';
     // Extract modifier by removing base name and separators
-    modifier = rawFilmType.replace(/dolby cinema/i, '').replace(/[-:()]/g, '').trim();
+    // 移除所有 "Dolby Cinema" 相關字樣（包括連寫的 DolbyCinema）
+    modifier = rawFilmType.replace(/dolby\s*cinema/ig, '').replace(/[-:()]/g, '').trim();
     keywordFound = true;
   }
   // Check for LUXE (if not already Dolby)
