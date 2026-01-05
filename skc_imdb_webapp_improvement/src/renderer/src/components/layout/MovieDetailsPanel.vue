@@ -78,11 +78,7 @@ function handleSessionClick(session: SKCSession) {
           <span v-if="selectedMovie.imdbRating === '-1'" class="rating-unavailable">IMDb未評分</span>
           <span v-else-if="selectedMovie.imdbRating === '-2'" class="rating-unavailable">IMDb查詢失敗</span>
           <span v-else-if="selectedMovie.imdbRating !== null">
-            {{ parseFloat(selectedMovie.imdbRating).toFixed(1) + ' / 10 (IMDb' }}
-            <span v-if="selectedMovie.imdbRatingCount !== null && selectedMovie.imdbRatingCount !== undefined && formatImdbRatingCount(selectedMovie.imdbRatingCount)">
-              {{ ' 評分人數: ' + formatImdbRatingCount(selectedMovie.imdbRatingCount) }}
-            </span>
-            {{ ')' }}
+            {{ parseFloat(selectedMovie.imdbRating).toFixed(1) + ' / 10 (IMDb)' }}<span v-if="selectedMovie.imdbRatingCount !== null && selectedMovie.imdbRatingCount !== undefined && formatImdbRatingCount(selectedMovie.imdbRatingCount)">{{ ' 評分人數: ' + formatImdbRatingCount(selectedMovie.imdbRatingCount) }}</span>
           </span>
           <span v-else class="rating-unavailable">...</span>
         </p>

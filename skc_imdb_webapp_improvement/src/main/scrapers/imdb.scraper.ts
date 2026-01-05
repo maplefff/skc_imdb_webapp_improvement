@@ -339,6 +339,10 @@ export async function fetchRawImdbData(
             console.log('[imdbScraper] Processing data from JSON-LD...');
             imdbPageTitle = jsonLdData.name?.trim() || null;
             extractedRating = jsonLdData.aggregateRating?.ratingValue?.toString() || null;
+            // 提取評分人數
+            const ratingCount = jsonLdData.aggregateRating?.ratingCount;
+            payload.imdbRatingCount = typeof ratingCount === 'number' ? ratingCount : null;
+            console.log(`[imdbScraper] JSON-LD - Rating Count: ${payload.imdbRatingCount}`);
             payload.plot = jsonLdData.description || null;
             payload.genres = Array.isArray(jsonLdData.genre)
                 ? jsonLdData.genre
@@ -419,6 +423,7 @@ export async function fetchRawImdbData(
 export function processImdbData(rawData: ImdbRawDataPayload): Partial<CombinedMovieData> {
     return {
         imdbRating: rawData.imdbRating || null,
+        imdbRatingCount: rawData.imdbRatingCount ?? null,
         imdbUrl: rawData.imdbUrl || null,
         plot: rawData.plot || null,
         genres: rawData.genres || null,
