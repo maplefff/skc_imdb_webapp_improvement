@@ -15,6 +15,8 @@ export const MAIN_WINDOW_CONFIG = {
     backgroundColor: WINDOW_CONFIG.BACKGROUND_COLOR,
     autoHideMenuBar: true,
     show: false, // 等待 ready-to-show 事件
+    frame: false, // 移除原生視窗框架和標題欄
+    titleBarStyle: 'hidden' as const, // 隱藏標題欄（macOS）
 } as const;
 
 /**

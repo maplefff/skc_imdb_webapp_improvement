@@ -63,6 +63,7 @@ const localShowTodayOnly = computed({
   background-color: transparent;
   flex-shrink: 0;
   height: auto;
+  -webkit-app-region: drag; /* 使整個標題容器可拖拽視窗 */
 }
 
 .header-content {
@@ -87,6 +88,7 @@ const localShowTodayOnly = computed({
   text-decoration: none;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
+  -webkit-app-region: no-drag; /* 保持連結可點擊 */
 }
 
 .header-title-link:hover {
@@ -113,6 +115,7 @@ const localShowTodayOnly = computed({
   display: flex;
   align-items: center;
   gap: 8px;
+  -webkit-app-region: no-drag; /* 保持開關可點擊 */
 }
 
 .switch-label {
@@ -125,6 +128,7 @@ const localShowTodayOnly = computed({
   margin-top: 1rem;
   background-color: rgba(245, 108, 108, 0.1);
   border: 1px solid rgba(245, 108, 108, 0.3);
+  -webkit-app-region: no-drag; /* 保持錯誤警告內的按鈕可點擊 */
 }
 
 /* Variables assumed to be defined in App.vue or globally */
