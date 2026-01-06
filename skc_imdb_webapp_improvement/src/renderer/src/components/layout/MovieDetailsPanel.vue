@@ -81,6 +81,10 @@ function handleSessionClick(session: SKCSession) {
             {{ parseFloat(selectedMovie.imdbRating).toFixed(1) + ' / 10 (IMDb)' }}<span v-if="selectedMovie.imdbRatingCount !== null && selectedMovie.imdbRatingCount !== undefined && formatImdbRatingCount(selectedMovie.imdbRatingCount)">{{ ' 評分人數: ' + formatImdbRatingCount(selectedMovie.imdbRatingCount) }}</span>
           </span>
           <span v-else class="rating-unavailable">...</span>
+          <!-- IMDb 連結圖示 -->
+          <a v-if="selectedMovie.imdbUrl && selectedMovie.imdbRating !== null && selectedMovie.imdbRating !== '-1' && selectedMovie.imdbRating !== '-2'" :href="selectedMovie.imdbUrl" target="_blank" rel="noopener noreferrer" class="imdb-link-icon" @click.prevent="openLink(selectedMovie.imdbUrl)">
+            <el-icon><Link /></el-icon>
+          </a>
         </p>
         <div class="tags">
            <span v-if="!selectedMovie.genres || selectedMovie.genres.length === 0" class="genre-tag-capsule" key="genres-placeholder">類型...</span>
@@ -140,21 +144,7 @@ function handleSessionClick(session: SKCSession) {
             </div>
          </div>
 
-        <!-- IMDb Link Section -->
-        <div class="imdb-section">
-           <p v-if="selectedMovie.imdbUrl" class="imdb-link-wrapper">
-             <a :href="selectedMovie.imdbUrl" target="_blank" rel="noopener noreferrer" class="imdb-link" @click.prevent="openLink(selectedMovie.imdbUrl)">
-               在 IMDb 上查看
-               <el-icon><Link /></el-icon>
-             </a>
-           </p>
-           <p v-else class="imdb-link-unavailable">
-               無法獲取 IMDb 連結。
-           </p>
-           <br>
-           <br>
-           <br>
-         </div>
+
       </div>
       <!-- Right Part: Poster -->
       <div class="details-poster">
@@ -230,12 +220,16 @@ function handleSessionClick(session: SKCSession) {
   margin: 0 0 2px 0;
   font-size: 1.8rem;
   color: var(--dark-text-primary);
+  user-select: text;
+  cursor: text;
 }
 
 .detail-english-title {
   font-size: 1.1rem;
   color: var(--dark-text-secondary);
   margin: 0 0 10px 0;
+  user-select: text;
+  cursor: text;
 }
 
 .selected-movie-details .rating {
@@ -276,9 +270,19 @@ function handleSessionClick(session: SKCSession) {
   font-size: 0.9rem;
   color: var(--dark-text-secondary);
   margin: 5px 0;
+  user-select: none;
 }
 .credits span {
   color: var(--dark-text-primary);
+  user-select: text;
+  cursor: text;
+}
+
+/* 片長不可選取 */
+.credits.runtime,
+.credits.runtime span {
+  user-select: none;
+  cursor: default;
 }
 
 .selected-movie-details h3 {
@@ -293,6 +297,8 @@ function handleSessionClick(session: SKCSession) {
   font-size: 0.95rem;
   line-height: 1.6;
   color: var(--dark-text-primary);
+  user-select: text;
+  cursor: text;
 }
 
 .sessions-container {
@@ -369,37 +375,23 @@ function handleSessionClick(session: SKCSession) {
   margin: 5px 0;
 }
 
-.imdb-section {
-  margin-top: 25px;
-  padding-top: 15px;
-  border-top: 1px dashed var(--dark-border-color);
-}
-
-.imdb-link-wrapper {
-  margin: 0;
-}
-
-.imdb-link {
+/* IMDb 連結圖示 */
+.imdb-link-icon {
   display: inline-flex;
   align-items: center;
-  color: #66b1ff;
-  text-decoration: none;
-  font-weight: 500;
-  transition: color 0.2s;
-  cursor: pointer;
-}
-.imdb-link:hover {
-  color: #8ccaff;
-  text-decoration: underline;
-}
-.imdb-link .el-icon {
-  margin-left: 5px;
-}
-
-.imdb-link-unavailable {
-  font-size: 0.9rem;
   color: var(--dark-text-secondary);
-  margin: 0;
+  text-decoration: none;
+  margin-left: 8px;
+  transition: color 0.2s, opacity 0.2s;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.imdb-link-icon:hover {
+  color: var(--dark-text-primary);
+  opacity: 1;
+}
+.imdb-link-icon .el-icon {
+  font-size: inherit;
 }
 
 .detail-poster-image {
