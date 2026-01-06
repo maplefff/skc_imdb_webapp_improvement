@@ -90,9 +90,9 @@ function handleSessionClick(session: SKCSession) {
            <span v-if="!selectedMovie.genres || selectedMovie.genres.length === 0" class="genre-tag-capsule" key="genres-placeholder">類型...</span>
            <span v-else-if="Array.isArray(selectedMovie.genres)" v-for="genre in selectedMovie.genres" :key="genre" class="genre-tag-capsule">{{ genre }}</span>
         </div>
-        <p class="credits">導演：<span>{{ Array.isArray(selectedMovie.directors) ? selectedMovie.directors.join(', ') : selectedMovie.directors || '...' }}</span></p>
-        <p class="credits">主演：<span>{{ Array.isArray(selectedMovie.cast) ? selectedMovie.cast.join(', ') : selectedMovie.cast || '...' }}</span></p>
-        <p class="credits runtime">片長：<span>{{ formatRuntime(selectedMovie.runtimeMinutes) }}</span></p>
+        <p class="credits"><span class="credits-label">導演：</span><span class="credits-value">{{ Array.isArray(selectedMovie.directors) ? selectedMovie.directors.join(', ') : selectedMovie.directors || '...' }}</span></p>
+        <p class="credits"><span class="credits-label">主演：</span><span class="credits-value">{{ Array.isArray(selectedMovie.cast) ? selectedMovie.cast.join(', ') : selectedMovie.cast || '...' }}</span></p>
+        <p class="credits runtime"><span class="credits-label">片長：</span><span class="credits-value">{{ formatRuntime(selectedMovie.runtimeMinutes) }}</span></p>
 
         <h3>劇情簡介</h3>
         <p class="plot">{{ selectedMovie.ratingDescription || selectedMovie.plot || '...' }}</p>
@@ -270,19 +270,30 @@ function handleSessionClick(session: SKCSession) {
   font-size: 0.9rem;
   color: var(--dark-text-secondary);
   margin: 5px 0;
-  user-select: none;
-}
-.credits span {
-  color: var(--dark-text-primary);
   user-select: text;
   cursor: text;
 }
 
-/* 片長不可選取 */
-.credits.runtime,
-.credits.runtime span {
+/* 標籤部分（導演：、主演：、片長：）不可選取 */
+.credits-label {
+  color: var(--dark-text-secondary);
+  user-select: none;
+}
+
+/* 內容部分（名稱）可選取 */
+.credits-value {
+  color: var(--dark-text-primary);
+  user-select: text;
+}
+
+/* 片長整行不可選取 */
+.credits.runtime {
   user-select: none;
   cursor: default;
+}
+.credits.runtime .credits-label,
+.credits.runtime .credits-value {
+  user-select: none;
 }
 
 .selected-movie-details h3 {
