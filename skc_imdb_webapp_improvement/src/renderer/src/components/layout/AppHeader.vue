@@ -28,10 +28,7 @@ const localShowTodayOnly = computed({
     <!-- Header Content from App.vue -->
     <div class="header-content">
       <h1 class="header-title-wrapper">
-        新光影城電影列表 — 青埔影院
-        <a href="https://www.skcinemas.com/sessions?c=1004" target="_blank" rel="noopener noreferrer" class="header-link-icon">
-          <el-icon><Link /></el-icon>
-        </a>
+        新光影城電影列表 — <a href="https://www.skcinemas.com/sessions?c=1004" target="_blank" rel="noopener noreferrer" class="header-title-link">青埔影院<el-icon class="header-link-icon-inline"><Link /></el-icon></a>
       </h1>
       <!-- 'Show Today Only' Switch -->
       <div class="show-today-switch-container">
@@ -76,27 +73,40 @@ const localShowTodayOnly = computed({
 }
 
 .header-title-wrapper {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
   margin: 0;
   font-size: 2rem;
   color: var(--dark-text-primary);
   text-align: left;
 }
 
-.header-link-icon {
-  color: var(--dark-text-secondary);
-  font-size: 1.5rem;
-  line-height: 1;
+.header-title-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dark-text-primary);
   text-decoration: none;
-  transition: color 0.2s;
-  position: relative;
-  top: 3px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
 }
 
-.header-link-icon:hover {
-  color: var(--el-color-primary);
+.header-title-link:hover {
+  color: #66b1ff;
+  text-shadow: 0 2px 8px rgba(102, 177, 255, 0.3);
+}
+
+.header-title-link:active {
+  opacity: 0.8;
+}
+
+.header-link-icon-inline {
+  font-size: 1.5rem;
+  color: #f7ba2a;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.header-title-link:hover .header-link-icon-inline {
+  opacity: 1;
 }
 
 .show-today-switch-container {

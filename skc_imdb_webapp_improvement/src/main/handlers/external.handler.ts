@@ -11,11 +11,12 @@ import type { OpenExternalUrlHandler } from '../../shared/types/ipc.types';
 export const handleOpenExternalUrl: OpenExternalUrlHandler = async (_event, url) => {
     console.log(`[IPC Handler] Received request to open external URL: ${url}`);
 
-    // 安全性檢查：只允許 SKCinema 訂票頁和 IMDb 電影頁
+    // 安全性檢查：只允許 SKCinema 訂票頁、IMDb 電影頁和 Google 搜尋
     const isSkcBookingUrl = url?.startsWith('https://www.skcinemas.com/booking/seats?');
     const isImdbTitleUrl = url?.startsWith('https://www.imdb.com/title/');
+    const isGoogleSearchUrl = url?.startsWith('https://www.google.com/search?q=');
 
-    if (url && typeof url === 'string' && (isSkcBookingUrl || isImdbTitleUrl)) {
+    if (url && typeof url === 'string' && (isSkcBookingUrl || isImdbTitleUrl || isGoogleSearchUrl)) {
         try {
             await shell.openExternal(url);
             console.log(`[IPC Handler] Successfully opened external URL: ${url}`);

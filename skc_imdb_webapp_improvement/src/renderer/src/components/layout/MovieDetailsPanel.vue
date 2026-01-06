@@ -58,6 +58,16 @@ function handleSessionClick(session: SKCSession) {
   openLink(targetUrl);
 }
 
+// --- Google 搜尋功能 ---
+function searchOnGoogle(query: string) {
+  if (!query || query === '...') {
+    console.warn('[MovieDetailsPanel] Invalid search query:', query);
+    return;
+  }
+  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+  openLink(searchUrl);
+}
+
 </script>
 
 <template>
@@ -71,27 +81,43 @@ function handleSessionClick(session: SKCSession) {
     <div v-else class="selected-movie-details" key="details">
       <!-- Left Part: Textual Details -->
       <div class="details-content">
-        <h2 style="word-break: break-all;">{{ selectedMovie.movieName.replace(/　/g, ' ') }}</h2>
-        <p class="detail-english-title">{{ selectedMovie.englishTitle }}</p>
+        <h2 class="clickable-title" @click="searchOnGoogle(selectedMovie.movieName)" style="word-break: break-all;">{{ selectedMovie.movieName.replace(/　/g, ' ') }}</h2>
+        <p class="detail-english-title clickable-title" @click="searchOnGoogle(selectedMovie.englishTitle)">{{ selectedMovie.englishTitle }}</p>
         <p class="rating">
           <el-icon><Star /></el-icon>
           <span v-if="selectedMovie.imdbRating === '-1'" class="rating-unavailable">IMDb未評分</span>
           <span v-else-if="selectedMovie.imdbRating === '-2'" class="rating-unavailable">IMDb查詢失敗</span>
           <span v-else-if="selectedMovie.imdbRating !== null">
-            {{ parseFloat(selectedMovie.imdbRating).toFixed(1) + ' / 10 (IMDb)' }}<span v-if="selectedMovie.imdbRatingCount !== null && selectedMovie.imdbRatingCount !== undefined && formatImdbRatingCount(selectedMovie.imdbRatingCount)">{{ ' 評分人數: ' + formatImdbRatingCount(selectedMovie.imdbRatingCount) }}</span>
+            {{ parseFloat(selectedMovie.imdbRating).toFixed(1) + ' / 10' }}<span v-if="selectedMovie.imdbRatingCount !== null && selectedMovie.imdbRatingCount !== undefined && formatImdbRatingCount(selectedMovie.imdbRatingCount)">{{ ' (評分人數: ' + formatImdbRatingCount(selectedMovie.imdbRatingCount) + ')' }}</span> <a v-if="selectedMovie.imdbUrl" :href="selectedMovie.imdbUrl" target="_blank" rel="noopener noreferrer" class="imdb-text-link" @click.prevent="openLink(selectedMovie.imdbUrl)">IMDb<el-icon class="imdb-icon-inline"><Link /></el-icon></a>
           </span>
           <span v-else class="rating-unavailable">...</span>
-          <!-- IMDb 連結圖示 -->
-          <a v-if="selectedMovie.imdbUrl && selectedMovie.imdbRating !== null && selectedMovie.imdbRating !== '-1' && selectedMovie.imdbRating !== '-2'" :href="selectedMovie.imdbUrl" target="_blank" rel="noopener noreferrer" class="imdb-link-icon" @click.prevent="openLink(selectedMovie.imdbUrl)">
-            <el-icon><Link /></el-icon>
-          </a>
         </p>
         <div class="tags">
            <span v-if="!selectedMovie.genres || selectedMovie.genres.length === 0" class="genre-tag-capsule" key="genres-placeholder">類型...</span>
            <span v-else-if="Array.isArray(selectedMovie.genres)" v-for="genre in selectedMovie.genres" :key="genre" class="genre-tag-capsule">{{ genre }}</span>
         </div>
-        <p class="credits"><span class="credits-label">導演：</span><span class="credits-value">{{ Array.isArray(selectedMovie.directors) ? selectedMovie.directors.join(', ') : selectedMovie.directors || '...' }}</span></p>
-        <p class="credits"><span class="credits-label">主演：</span><span class="credits-value">{{ Array.isArray(selectedMovie.cast) ? selectedMovie.cast.join(', ') : selectedMovie.cast || '...' }}</span></p>
+        <p class="credits">
+          <span class="credits-label">導演：</span>
+          <span class="credits-value">
+            <template v-if="Array.isArray(selectedMovie.directors) && selectedMovie.directors.length > 0">
+              <span v-for="(director, index) in selectedMovie.directors" :key="index">
+                <span class="clickable-name" @click="searchOnGoogle(director)">{{ director }}</span><span v-if="index < selectedMovie.directors.length - 1">, </span>
+              </span>
+            </template>
+            <span v-else>{{ selectedMovie.directors || '...' }}</span>
+          </span>
+        </p>
+        <p class="credits">
+          <span class="credits-label">主演：</span>
+          <span class="credits-value">
+            <template v-if="Array.isArray(selectedMovie.cast) && selectedMovie.cast.length > 0">
+              <span v-for="(actor, index) in selectedMovie.cast" :key="index">
+                <span class="clickable-name" @click="searchOnGoogle(actor)">{{ actor }}</span><span v-if="index < selectedMovie.cast.length - 1">, </span>
+              </span>
+            </template>
+            <span v-else>{{ selectedMovie.cast || '...' }}</span>
+          </span>
+        </p>
         <p class="credits runtime"><span class="credits-label">片長：</span><span class="credits-value">{{ formatRuntime(selectedMovie.runtimeMinutes) }}</span></p>
 
         <h3>劇情簡介</h3>
@@ -221,7 +247,6 @@ function handleSessionClick(session: SKCSession) {
   font-size: 1.8rem;
   color: var(--dark-text-primary);
   user-select: text;
-  cursor: text;
 }
 
 .detail-english-title {
@@ -229,7 +254,22 @@ function handleSessionClick(session: SKCSession) {
   color: var(--dark-text-secondary);
   margin: 0 0 10px 0;
   user-select: text;
-  cursor: text;
+}
+
+/* 可點擊標題樣式（片名） */
+.clickable-title {
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.clickable-title:hover {
+  color: #66b1ff;
+  text-shadow: 0 2px 8px rgba(102, 177, 255, 0.3);
+}
+
+.clickable-title:active {
+  opacity: 0.8;
 }
 
 .selected-movie-details .rating {
@@ -284,6 +324,22 @@ function handleSessionClick(session: SKCSession) {
 .credits-value {
   color: var(--dark-text-primary);
   user-select: text;
+}
+
+/* 可點擊名字樣式（導演、主演） */
+.clickable-name {
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.clickable-name:hover {
+  color: #66b1ff;
+  text-shadow: 0 1px 4px rgba(102, 177, 255, 0.3);
+}
+
+.clickable-name:active {
+  opacity: 0.8;
 }
 
 /* 片長整行不可選取 */
@@ -386,7 +442,36 @@ function handleSessionClick(session: SKCSession) {
   margin: 5px 0;
 }
 
-/* IMDb 連結圖示 */
+/* IMDb 文字連結 */
+.imdb-text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--dark-text-secondary);
+  text-decoration: none;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.imdb-text-link:hover {
+  color: #66b1ff;
+  text-shadow: 0 1px 4px rgba(102, 177, 255, 0.3);
+}
+
+.imdb-text-link:active {
+  opacity: 0.8;
+}
+
+.imdb-icon-inline {
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
+.imdb-text-link:hover .imdb-icon-inline {
+  opacity: 1;
+}
+
+/* IMDb 連結圖示（舊樣式，保留以防萬一） */
 .imdb-link-icon {
   display: inline-flex;
   align-items: center;
