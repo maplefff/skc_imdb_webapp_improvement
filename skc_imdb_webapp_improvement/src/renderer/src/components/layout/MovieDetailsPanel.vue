@@ -370,6 +370,7 @@ function searchOnGoogle(query: string) {
 
 .sessions-container {
   margin-top: 10px;
+  padding-bottom: 2rem;
 }
 
 .session-date-group {
