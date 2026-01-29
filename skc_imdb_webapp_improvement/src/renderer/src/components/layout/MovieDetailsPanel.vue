@@ -30,6 +30,55 @@ function formatImdbRatingCount(count: number | null | undefined): string {
   return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
 }
 
+// --- 計算日期差距(天數) ---
+function getDaysDifference(dateKey: string): number {
+  if (!dateKey) return 0;
+  
+  const parts = dateKey.split('-');
+  if (parts.length !== 2) return 0;
+  
+  const month = parseInt(parts[0], 10);
+  const day = parseInt(parts[1], 10);
+  
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  
+  // 構建目標日期
+  let targetDate = new Date(currentYear, month - 1, day);
+  
+  // 處理跨年情況:如果目標日期在過去且月份較小,假定為明年
+  if (targetDate < now && month < now.getMonth() + 1) {
+    targetDate = new Date(currentYear + 1, month - 1, day);
+  }
+  
+  // 計算天數差距
+  const diffTime = targetDate.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  return diffDays;
+}
+
+// --- 判斷是否為非近期場次 ---
+function isNonRecentSession(groupedSessions: any): boolean {
+  if (!groupedSessions || Object.keys(groupedSessions).length === 0) {
+    return false;
+  }
+  
+  // 獲取第一個(最早)日期的 key
+  const firstDateKey = Object.keys(groupedSessions)[0];
+  const daysDiff = getDaysDifference(firstDateKey);
+  const isNonRecent = daysDiff > 4; //設定顯示警告差異天數
+  
+  console.log('[MovieDetailsPanel] isNonRecentSession check:', {
+    firstDateKey,
+    daysDiff,
+    result: isNonRecent
+  });
+  
+  return isNonRecent;
+}
+
+
 // --- Methods for handling clicks (copied from App.vue) ---
 async function openLink(url: string | null | undefined) {
   if (!url) {
@@ -132,7 +181,15 @@ function searchOnGoogle(query: string) {
              :key="dateKey"
              class="session-date-group"
             >
-              <h4 class="session-date-title">時刻表 - {{ formatGroupDateTitle(dateKey as string, dateGroupData.weekday) }}</h4>
+              <h4 class="session-date-title">
+                時刻表 - {{ formatGroupDateTitle(dateKey as string, dateGroupData.weekday) }}
+                <span 
+                  v-if="isNonRecentSession(groupedAndSortedSessions)" 
+                  class="non-recent-warning"
+                >
+                  ! 非近期場次
+                </span>
+              </h4>
               <div class="filmtype-columns-container">
                  <div
                    v-for="typeGroup in dateGroupData.sortedFilmTypes"
@@ -383,6 +440,13 @@ function searchOnGoogle(query: string) {
   margin-bottom: 12px;
   padding-bottom: 3px;
   border-bottom: 1px solid var(--dark-border-color);
+}
+
+.non-recent-warning {
+  color: #FF6B35;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-left: 8px;
 }
 
 .filmtype-columns-container {

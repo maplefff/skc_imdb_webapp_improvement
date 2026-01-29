@@ -1,6 +1,6 @@
 {
   "name": "skcinema-imdb-rating",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "An Electron application that fetches SK Cinema movie showtimes and displays IMDb ratings.",
   "main": "./out/main/index.js",
   "author": "example.com",
