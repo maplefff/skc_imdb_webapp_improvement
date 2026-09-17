@@ -7,12 +7,22 @@ export interface ProcessedFilmType {
   modifier: string | null;
 }
 
+/** 去掉分組關鍵字後殘留的分隔符號 (例如 "｜INFINITY　VISION" → "INFINITY　VISION") */
+function cleanModifier(rest: string): string {
+  return rest
+    .replace(/[-:()]/g, '')
+    .replace(/^[｜|│\s]+|[｜|│\s]+$/g, '')
+    .trim();
+}
+
 export function processFilmTypeAndModifier(rawFilmType: string | undefined | null): ProcessedFilmType {
   if (!rawFilmType) {
     return { groupName: '未知類型', modifier: null };
   }
 
   const lowerCaseType = rawFilmType.toLowerCase();
+  // 官網 2026 改版後版本標籤改用全形句點 (B．O．X)，正規化後才比對得到
+  const normalizedType = lowerCaseType.replace(/[．｡。]/g, '.');
   let groupName = rawFilmType; // Default to original
   let modifier: string | null = null;
   let keywordFound = false;
@@ -22,17 +32,17 @@ export function processFilmTypeAndModifier(rawFilmType: string | undefined | nul
     groupName = 'Dolby Cinema';
     // Extract modifier by removing base name and separators
     // 移除所有 "Dolby Cinema" 相關字樣（包括連寫的 DolbyCinema）
-    modifier = rawFilmType.replace(/dolby\s*cinema/ig, '').replace(/[-:()]/g, '').trim();
+    modifier = cleanModifier(rawFilmType.replace(/dolby\s*cinema/ig, ''));
     keywordFound = true;
   }
   // Check for LUXE (if not already Dolby)
   else if (lowerCaseType.includes('luxe')) {
     groupName = 'LUXE';
-    modifier = rawFilmType.replace(/luxe/i, '').replace(/[-:()]/g, '').trim();
+    modifier = cleanModifier(rawFilmType.replace(/luxe/i, ''));
     keywordFound = true;
   }
   // Check for B.O.X./Sealy/OSIM (if not Dolby or LUXE)
-  else if (lowerCaseType.includes('b.o.x') || lowerCaseType.includes('box') || lowerCaseType.includes('sealy') || lowerCaseType.includes('osim')) {
+  else if (normalizedType.includes('b.o.x') || normalizedType.includes('box') || normalizedType.includes('sealy') || normalizedType.includes('osim')) {
     groupName = 'B.O.X.';
     modifier = null;
     keywordFound = true;

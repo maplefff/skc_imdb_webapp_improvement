@@ -66,7 +66,7 @@ export class MovieDataService {
             this.sendProgress({ type: 'fetching-skc' });
             const skcRawData = await fetchRawSkcData();
 
-            if (!skcRawData?.homePageData || !skcRawData?.sessionData) {
+            if (!skcRawData?.sessionBlocks?.length) {
                 throw new Error('無法獲取新光影城原始資料');
             }
 
@@ -127,7 +127,8 @@ export class MovieDataService {
                                 cacheService.setImdbCache(movie.filmNameID, imdbResult);
                             } else if (imdbResult.status === 'no-rating') {
                                 progressType = 'imdb-progress-no-rating';
-                                cacheService.setImdbCache(movie.filmNameID, imdbResult);
+                                // no-rating 不快取：電影上映初期評分可能尚未建立，
+                                // 每次重新查詢以確保能取得最新評分資料
                             } else {
                                 progressType = 'imdb-progress-failed';
                             }

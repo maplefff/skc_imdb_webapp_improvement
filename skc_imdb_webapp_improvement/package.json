@@ -1,6 +1,6 @@
 {
   "name": "skcinema-imdb-rating",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "An Electron application that fetches SK Cinema movie showtimes and displays IMDb ratings.",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -61,15 +61,6 @@
     "directories": {
       "output": "release"
     },
-    "extraResources": [
-      {
-        "from": "~/Library/Caches/ms-playwright/chromium-1169/",
-        "to": "./pw-browsers/chromium-1169",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
     "mac": {
       "target": "dmg",
       "icon": "resources/icon.icns"

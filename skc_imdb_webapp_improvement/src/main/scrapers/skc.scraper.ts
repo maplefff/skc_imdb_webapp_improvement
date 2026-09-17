@@ -1,413 +1,416 @@
-import crypto from 'crypto';
-import { v4 as uuidv4 } from 'uuid';
+/**
+ * SK Cinema 資料抓取器
+ *
+ * 2026 年官網改版後，舊的 /api/VistaDataV2/* JSON API 已下線
+ * (任何請求都會被導回 HTML 首頁)，改為抓取伺服器渲染的頁面：
+ *
+ *   1. /Sessions/Sessions?cinemaId=XXXX  → 該影城所有場次 (依影片版本分區塊)
+ *   2. /Films/FP?cinemaId=XXXX&filmId=YY → 影片詳情 (英文片名/海報/片長/劇情)
+ *                                          以及場次的散場時間與影廳名稱
+ *
+ * 同一部電影會因版本 (數位版 / LUXE / DolbyCinema / B．O．X) 在場次頁被拆成
+ * 多個 filmId 區塊，而詳情頁會一次涵蓋同部電影的所有 filmId，
+ * 因此用詳情頁回報的 relatedFilmIds 把這些區塊合併回同一部電影。
+ */
+
 import axios from 'axios';
+import * as cheerio from 'cheerio';
 import type { CombinedMovieData } from '../../shared/types/movie.types';
-import type { SKCSession, SkcRawDataPayload } from '../../shared/types/session.types';
+import type {
+  SKCSession,
+  SkcRawDataPayload,
+  SkcRawFilmDetail,
+  SkcRawSession,
+  SkcRawSessionBlock
+} from '../../shared/types/session.types';
+import { REQUEST_TIMEOUT } from '../../shared/constants';
 
-// --- API 相關常數 ---
+// --- 常數 ---
 const BASE_URL = 'https://www.skcinemas.com';
-const HOME_PAGE_API = '/api/VistaDataV2/GetHomePageListForApps';
-const SESSION_API = '/api/VistaDataV2/GetSessionByCinemasIDForApp';
+const SESSIONS_PATH = '/Sessions/Sessions';
+const FILM_PAGE_PATH = '/Films/FP';
 
-// 混淆後的密鑰 (來自逆向工程)
-const OBFUSCATED_KEY = "guRt^V]B\tCEwD{uNyX@c_w?{@br>Q\x04[X";
-const KEY_SHIFT = 13;
+/** 同時抓取影片詳情頁的最大併發數 */
+const DETAIL_FETCH_CONCURRENCY = 5;
+/** 補抓遺漏 filmId 的最大輪數 (防止無限迴圈) */
+const MAX_DISCOVERY_ROUNDS = 3;
 
-// --- 字串混淆/反混淆函數 (來自逆向工程) ---
+const PAGE_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8'
+};
+
+// --- 輔助函數 ---
 
 /**
- * 字串混淆函數
- * @param str - 要混淆的字串
- * @param shift - 移位量
- * @param modulus - 模數 (預設 126)
+ * 抓取指定路徑的 HTML
  */
-function obfs(str: string, shift: number, modulus: number = 126): string {
-  const chars = str.split('');
-  for (let i = 0; i < chars.length; i++) {
-    const charCode = chars[i].charCodeAt(0);
-    if (charCode <= modulus) {
-      chars[i] = String.fromCharCode((charCode + shift) % modulus);
+async function fetchPage(path: string): Promise<string> {
+  const url = `${BASE_URL}${path}`;
+  const response = await axios.get<string>(url, {
+    headers: PAGE_HEADERS,
+    timeout: REQUEST_TIMEOUT.SKC,
+    responseType: 'text',
+    transformResponse: [(data) => data]
+  });
+
+  if (response.status !== 200 || typeof response.data !== 'string') {
+    throw new Error(`Unexpected response for ${path}: status ${response.status}`);
+  }
+  return response.data;
+}
+
+/**
+ * 以固定併發數執行非同步工作
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<R>
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let cursor = 0;
+
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      try {
+        results[index] = { status: 'fulfilled', value: await worker(items[index]) };
+      } catch (error) {
+        results[index] = { status: 'rejected', reason: error };
+      }
     }
-  }
-  return chars.join('');
+  });
+
+  await Promise.all(runners);
+  return results;
 }
 
 /**
- * 字串反混淆函數
- * @param str - 要反混淆的字串
- * @param shift - 移位量
- * @param modulus - 模數 (預設 126)
+ * 正規化 HTML 取出的文字 (把換行/縮排/全形空白收斂成單一半形空白)
  */
-function defs(str: string, shift: number, modulus: number = 126): string {
-  return obfs(str, modulus - shift, modulus);
-}
-
-// 解碼後的密鑰
-const SECRET_KEY = defs(OBFUSCATED_KEY, KEY_SHIFT);
-
-/**
- * 生成 SK Cinema API 的 security token
- * @param timestamp - 毫秒時間戳
- * @param did - Device ID (UUID v4)
- * @param customerId - 客戶 ID (預設空字串)
- * @param mobile - 手機號碼 (預設空字串)
- * @returns HMAC-SHA512 hex 字串 (大寫)
- */
-function securityHash(timestamp: string, did: string, customerId: string = '', mobile: string = ''): string {
-  const r = SECRET_KEY;
-  let i: string;
-
-  // 根據 timestamp % 3 選擇密鑰變形
-  const tsMod3 = parseInt(timestamp) % 3;
-  switch (tsMod3) {
-    case 0:
-      i = r.substring(7) + r.substring(3, 18);
-      break;
-    case 1:
-      i = r.substring(4, 12) + r.substring(5);
-      break;
-    case 2:
-    default:
-      i = r.substring(3) + r.substring(6, 19);
-      break;
-  }
-
-  // 根據 timestamp % 6 組合待簽名字串
-  const tsMod6 = parseInt(timestamp) % 6;
-  let o: string;
-  switch (tsMod6) {
-    case 0:
-      o = timestamp + mobile + i + did + customerId + r + mobile;
-      break;
-    case 1:
-      o = r + customerId + mobile + customerId + i + did + timestamp;
-      break;
-    case 2:
-      o = did + mobile + i + customerId + timestamp + r;
-      break;
-    case 3:
-      o = customerId + r + mobile + i + timestamp + did;
-      break;
-    case 4:
-      o = mobile + timestamp + r + timestamp + customerId + did;
-      break;
-    case 5:
-    default:
-      o = did + i + timestamp + mobile + customerId + did;
-      break;
-  }
-
-  // 使用 HMAC-SHA512 生成 token
-  const hmac = crypto.createHmac('sha512', r);
-  hmac.update(o);
-  return hmac.digest('hex').toUpperCase();
+function normalizeText(value: string | undefined | null): string {
+  if (!value) return '';
+  return value.replace(/\s+/g, ' ').trim();
 }
 
 /**
- * 生成 API 請求所需的 headers
+ * 把相對路徑補成完整 URL
  */
-function generateApiHeaders(): Record<string, string> {
-  const timestamp = Date.now().toString();
-  const did = uuidv4();
-  const token = securityHash(timestamp, did);
+function toAbsoluteUrl(src: string | undefined | null): string | null {
+  if (!src) return null;
+  if (src.startsWith('http://') || src.startsWith('https://')) return src;
+  return `${BASE_URL}${src.startsWith('/') ? '' : '/'}${src}`;
+}
+
+/**
+ * 從 /Booking/Booking?... 連結取出 filmId 與 sessionId
+ */
+function parseBookingUrl(url: string | undefined): { filmId: string; sessionId: string } {
+  if (!url) return { filmId: '', sessionId: '' };
+  const filmId = url.match(/filmId=([A-Za-z0-9]+)/i)?.[1] ?? '';
+  const sessionId = url.match(/sessionId=(\d+)/i)?.[1] ?? '';
+  return { filmId, sessionId };
+}
+
+// --- 頁面解析 ---
+
+/**
+ * 解析場次頁 (/Sessions/Sessions)
+ *
+ * 結構: 每個 div.pt-5.pb-3 是一個影片版本區塊，
+ * 內含 h3 片名、img.movie_rating 分級圖示，
+ * 以及數個日期群組 (h5 "09-18 (週五)" + span.badge 版本 + button 場次)。
+ */
+export function parseSessionsPage(html: string): SkcRawSessionBlock[] {
+  const $ = cheerio.load(html);
+  const blocks: SkcRawSessionBlock[] = [];
+
+  $('div.pt-5.pb-3').each((_, element) => {
+    const $block = $(element);
+    const movieName = normalizeText($block.find('h3').first().text());
+    if (!movieName) return;
+
+    const ageIcon = $block.find('img.movie_rating').first().attr('src') ?? '';
+    const sessions: SkcRawSession[] = [];
+    const filmIds: string[] = [];
+
+    // 每個日期群組是 block 的直接子 div
+    $block.children('div').each((__, groupElement) => {
+      const $group = $(groupElement);
+      const dateLabel = normalizeText($group.find('h5.d-inline strong').first().text());
+      const dateMatch = dateLabel.match(/(\d{2}-\d{2})\s*\(\s*(.+?)\s*\)/);
+      if (!dateMatch) return;
+
+      const [, date, weekday] = dateMatch;
+      const filmType = normalizeText($group.find('span.badge').first().text());
+
+      $group.find('button[data-sessionId]').each((___, buttonElement) => {
+        const $button = $(buttonElement);
+        const sessionId = $button.attr('data-sessionid') ?? '';
+        const filmId = $button.attr('data-filmid') ?? '';
+        const showtime = normalizeText($button.text());
+        if (!sessionId || !showtime) return;
+
+        if (filmId && !filmIds.includes(filmId)) filmIds.push(filmId);
+        sessions.push({ filmId, sessionId, date, weekday, showtime, filmType });
+      });
+    });
+
+    if (sessions.length === 0) return;
+    blocks.push({ movieName, ageIcon, filmIds, sessions });
+  });
+
+  return blocks;
+}
+
+/**
+ * 解析影片詳情頁 (/Films/FP)
+ * @param html 頁面 HTML
+ * @param requestedFilmId 抓取此頁時使用的 filmId
+ */
+export function parseFilmDetailPage(html: string, requestedFilmId: string): SkcRawFilmDetail {
+  const $ = cheerio.load(html);
+  const $right = $('div.right-container').first();
+
+  // 分級與片長同一行，例如 "保護級 145 分鐘"
+  const ratingLine = normalizeText($right.find('img.seat_rating').parent().find('p').first().text());
+  const skRating = ratingLine.split(/\s+/)[0] ?? '';
+  const runtimeMinutes = parseInt(ratingLine.match(/(\d+)\s*分鐘/)?.[1] ?? '0', 10) || 0;
+
+  const $title = $right.find('h3').first();
+  const movieName = normalizeText($title.text());
+  const englishTitle = normalizeText($title.next('p').text());
+
+  // 官網此處 <p> 巢狀不合法，瀏覽器/cheerio 會把 h5 提為 p 的兄弟節點
+  let plot = '';
+  $right.find('h5').each((_, element) => {
+    if ($(element).text().includes('劇情介紹')) {
+      plot = normalizeText($(element).next('p').text());
+    }
+  });
+
+  const posterUrl = toAbsoluteUrl($('div.left-container img').first().attr('src'));
+
+  // 詳情頁的場次區塊補足場次頁沒有的散場時間與影廳
+  const relatedFilmIds: string[] = [];
+  const sessionExtras: SkcRawFilmDetail['sessionExtras'] = {};
+
+  $('div.days-info div.session-info').each((_, element) => {
+    const $session = $(element);
+    const { filmId, sessionId } = parseBookingUrl($session.attr('data-action-url'));
+    if (filmId && !relatedFilmIds.includes(filmId)) relatedFilmIds.push(filmId);
+    if (!sessionId) return;
+
+    const endTime = normalizeText($session.find('p.end-time').first().text());
+    // 影廳名稱是散場時間後的第一個 <p> (最後一個 <p> 是剩餘座位)
+    const screenName = normalizeText($session.find('p.end-time').nextAll('p').first().text());
+    sessionExtras[sessionId] = { endTime, screenName };
+  });
+
+  if (requestedFilmId && !relatedFilmIds.includes(requestedFilmId)) {
+    relatedFilmIds.push(requestedFilmId);
+  }
 
   return {
-    'Accept': 'application/json',
-    'Content-Type': 'application/json',
-    'timestamp': timestamp,
-    'did': did,
-    'token': token,
-    'Origin': BASE_URL,
-    'Referer': `${BASE_URL}/sessions`
+    filmId: requestedFilmId,
+    movieName,
+    englishTitle,
+    posterUrl,
+    skRating,
+    runtimeMinutes,
+    plot,
+    relatedFilmIds,
+    sessionExtras
   };
 }
 
-// --- 輔助函數 --- 
+// --- 抓取流程 ---
 
 /**
- * 格式化日期為 MM-DD
- * @param rawDate - 原始日期字串 (假設格式為 YYYY-MM-DD or YYYY/MM/DD)
+ * 挑選要抓取詳情頁的代表 filmId
+ * 同片名的區塊先視為同一部電影，只抓一次詳情頁；
+ * 之後再用 relatedFilmIds 補抓沒被涵蓋到的 filmId。
  */
-function formatSessionDate(rawDate: string): string {
-  try {
-    const date = new Date(rawDate.replace(/-/g, '/')); // 嘗試兼容兩種分隔符
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const day = date.getDate().toString().padStart(2, '0');
-    // Removed weekday formatting here
-    return `${month}-${day}`;
-  } catch (error) {
-    console.warn(`[formatSessionDate] Error formatting date '${rawDate}':`, error);
-    return 'Invalid Date';
+function pickRepresentativeFilmIds(blocks: SkcRawSessionBlock[]): string[] {
+  const representatives: string[] = [];
+  const seenNames = new Set<string>();
+
+  for (const block of blocks) {
+    if (block.filmIds.length === 0) continue;
+    if (seenNames.has(block.movieName)) continue;
+    seenNames.add(block.movieName);
+    representatives.push(block.filmIds[0]);
   }
+
+  return representatives;
 }
 
 /**
- * Get weekday string "週N"
- * @param dateObject - JavaScript Date object
- */
-function getWeekdayString(dateObject: Date): string {
-  const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
-  const weekday = weekdays[dateObject.getDay()];
-  return `週${weekday}`;
-}
-
-/**
- * 格式化時間為 HH:mm
- * @param rawTime - 原始時間字串 (假設格式為 HH:mm:ss 或 HHmm)
- */
-function formatSessionTime(rawTime: string): string {
-  try {
-    if (rawTime.includes(':')) {
-      // 假設是 HH:mm:ss
-      const [hour, minute] = rawTime.split(':');
-      return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
-    } else if (rawTime.length === 4) {
-      // 假設是 HHmm
-      const hour = rawTime.substring(0, 2);
-      const minute = rawTime.substring(2, 4);
-      return `${hour}:${minute}`;
-    } else {
-      // 嘗試解析其他可能的數字格式，例如直接是 HHMMSS 數字
-      const numTime = parseInt(rawTime, 10);
-      if (!isNaN(numTime)) {
-        const timeStr = numTime.toString().padStart(6, '0');
-        const hour = timeStr.substring(0, 2);
-        const minute = timeStr.substring(2, 4);
-        // 確保小時和分鐘有效
-        if (parseInt(hour) >= 0 && parseInt(hour) < 24 && parseInt(minute) >= 0 && parseInt(minute) < 60) {
-          return `${hour}:${minute}`;
-        }
-      }
-      console.warn(`[formatSessionTime] Unrecognized time format '${rawTime}'`);
-      return 'Invalid Time';
-    }
-  } catch (error) {
-    console.warn(`[formatSessionTime] Error formatting time '${rawTime}':`, error);
-    return 'Invalid Time';
-  }
-}
-
-// --- 新的原始資料抓取函數 (使用直接 HTTP API 呼叫) ---
-
-/**
- * 抓取 SK Cinema 原始 API 資料 (直接 HTTP 請求，無需 Playwright)
- * @param locationCode - 影城代碼 (預設 1004 為青埔)
- * @returns Promise<SkcRawDataPayload> 包含原始 homePageData 和 sessionData 的物件
+ * 抓取 SK Cinema 原始資料 (場次頁 + 各影片詳情頁)
+ * @param locationCode 影城代碼 (預設 1004 為桃園青埔)
  */
 export async function fetchRawSkcData(locationCode: string = '1004'): Promise<SkcRawDataPayload> {
-  console.log(`[skcScraper] Fetching RAW SKC data via HTTP API for location: ${locationCode}`);
+  console.log(`[skcScraper] Fetching SKC pages for cinema ${locationCode}...`);
 
-  let homePageData: any = null;
-  let sessionData: any = null;
+  const empty: SkcRawDataPayload = { sessionBlocks: [], filmDetails: [] };
 
+  let sessionBlocks: SkcRawSessionBlock[];
   try {
-    // 1. 獲取首頁電影列表
-    console.log('[skcScraper] Calling GetHomePageListForApps API...');
-    const homePageHeaders = generateApiHeaders();
-    const homePageResponse = await axios.post(
-      `${BASE_URL}${HOME_PAGE_API}`,
-      { CustomerID: '', Mobile: '' },
-      {
-        headers: homePageHeaders,
-        timeout: 30000
-      }
-    );
-
-    if (homePageResponse.status === 200 && homePageResponse.data) {
-      if (homePageResponse.data.result === true) {
-        homePageData = homePageResponse.data;
-        console.log('[skcScraper] Successfully fetched home page data.');
-      } else {
-        console.error('[skcScraper] Home page API returned error:', homePageResponse.data.message);
-        console.error('[skcScraper] Message code:', homePageResponse.data.messagecode);
-        throw new Error(`API error: ${homePageResponse.data.message || 'Unknown error'}`);
-      }
-    } else {
-      throw new Error(`Home page API returned status ${homePageResponse.status}`);
-    }
-
-    // 2. 獲取場次資料
-    console.log(`[skcScraper] Calling GetSessionByCinemasIDForApp API for cinema ${locationCode}...`);
-    const sessionHeaders = generateApiHeaders();
-    const sessionResponse = await axios.post(
-      `${BASE_URL}${SESSION_API}`,
-      { CustomerID: '', Mobile: '', CinemasID: locationCode },
-      {
-        headers: sessionHeaders,
-        timeout: 30000
-      }
-    );
-
-    if (sessionResponse.status === 200 && sessionResponse.data) {
-      if (sessionResponse.data.result === true) {
-        sessionData = sessionResponse.data;
-        console.log('[skcScraper] Successfully fetched session data.');
-      } else {
-        console.error('[skcScraper] Session API returned error:', sessionResponse.data.message);
-        console.error('[skcScraper] Message code:', sessionResponse.data.messagecode);
-        throw new Error(`API error: ${sessionResponse.data.message || 'Unknown error'}`);
-      }
-    } else {
-      throw new Error(`Session API returned status ${sessionResponse.status}`);
-    }
-
-    console.log('[skcScraper] Successfully fetched both API responses via HTTP.');
-    return { homePageData, sessionData };
-
+    const sessionsHtml = await fetchPage(`${SESSIONS_PATH}?cinemaId=${encodeURIComponent(locationCode)}`);
+    sessionBlocks = parseSessionsPage(sessionsHtml);
   } catch (error: any) {
-    console.error(`[skcScraper] Error fetching SKC data via HTTP:`, error.message);
-    if (error.response) {
-      console.error(`[skcScraper] Response status: ${error.response.status}`);
-      console.error(`[skcScraper] Response data:`, error.response.data);
-    }
-    return { homePageData: null, sessionData: null };
+    console.error('[skcScraper] Failed to fetch sessions page:', error.message);
+    return empty;
   }
+
+  if (sessionBlocks.length === 0) {
+    console.error('[skcScraper] No session blocks parsed — page structure may have changed again.');
+    return empty;
+  }
+
+  const totalSessions = sessionBlocks.reduce((sum, block) => sum + block.sessions.length, 0);
+  console.log(
+    `[skcScraper] Parsed ${sessionBlocks.length} session blocks (${totalSessions} sessions).`
+  );
+
+  // 逐輪抓取詳情頁，直到所有 filmId 都被某個詳情頁涵蓋
+  const filmDetails: SkcRawFilmDetail[] = [];
+  const coveredFilmIds = new Set<string>();
+  const attemptedFilmIds = new Set<string>();
+  let pending = pickRepresentativeFilmIds(sessionBlocks);
+
+  for (let round = 0; round < MAX_DISCOVERY_ROUNDS && pending.length > 0; round++) {
+    const targets = pending.filter((filmId) => !attemptedFilmIds.has(filmId));
+    targets.forEach((filmId) => attemptedFilmIds.add(filmId));
+    if (targets.length === 0) break;
+
+    const results = await mapWithConcurrency(targets, DETAIL_FETCH_CONCURRENCY, async (filmId) => {
+      const html = await fetchPage(
+        `${FILM_PAGE_PATH}?cinemaId=${encodeURIComponent(locationCode)}&filmId=${encodeURIComponent(filmId)}`
+      );
+      return parseFilmDetailPage(html, filmId);
+    });
+
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        filmDetails.push(result.value);
+        result.value.relatedFilmIds.forEach((filmId) => coveredFilmIds.add(filmId));
+      } else {
+        console.warn(
+          `[skcScraper] Failed to fetch film page for ${targets[index]}:`,
+          result.reason?.message ?? result.reason
+        );
+      }
+    });
+
+    // 找出還沒被任何詳情頁涵蓋的 filmId，下一輪補抓
+    pending = [];
+    for (const block of sessionBlocks) {
+      for (const filmId of block.filmIds) {
+        if (!coveredFilmIds.has(filmId) && !attemptedFilmIds.has(filmId) && !pending.includes(filmId)) {
+          pending.push(filmId);
+        }
+      }
+    }
+    if (pending.length > 0) {
+      console.log(`[skcScraper] ${pending.length} film IDs still uncovered, fetching another round.`);
+    }
+  }
+
+  console.log(`[skcScraper] Fetched ${filmDetails.length} film detail pages.`);
+  return { sessionBlocks, filmDetails };
 }
 
-
-// --- 新的資料處理函數 ---
+// --- 資料處理 ---
 
 /**
- * 處理從 SK Cinema API 獲取的原始資料，轉換為 CombinedMovieData 陣列
- * @param rawData 包含原始 homePageData 和 sessionData 的物件
- * @returns CombinedMovieData[] 格式化後的電影時刻表陣列 (IMDb 欄位為 null)
+ * 依日期與開演時間排序場次
+ */
+function sortSessions(sessions: SKCSession[]): SKCSession[] {
+  return sessions.sort((a, b) => {
+    const dateComparison = a.date.localeCompare(b.date);
+    if (dateComparison !== 0) return dateComparison;
+    return a.showtime.localeCompare(b.showtime);
+  });
+}
+
+/**
+ * 把原始資料轉換為 CombinedMovieData 陣列 (IMDb 欄位為 null)
  */
 export function processSkcData(rawData: SkcRawDataPayload): CombinedMovieData[] {
-  const { homePageData, sessionData } = rawData;
-  const formattedMovies: CombinedMovieData[] = [];
+  const { sessionBlocks, filmDetails } = rawData ?? { sessionBlocks: [], filmDetails: [] };
 
-  if (!homePageData || !sessionData) {
-    console.error('[processSkcData] Missing homePageData or sessionData. Cannot process.');
-    return formattedMovies; // 返回空陣列
+  if (!sessionBlocks || sessionBlocks.length === 0) {
+    console.error('[processSkcData] No session blocks to process.');
+    return [];
   }
 
-  console.log('[processSkcData] Starting data processing...');
-
-  // --- 資料處理邏輯開始 --- 
-
-  // 1. 從 homePageData 提取海報 URL Map
-  const posterMap = new Map<string | number, string>();
-  try {
-    // 檢查 FilmUrl 是否存在且為陣列
-    if (homePageData?.data?.newestMovie?.FilmUrl && Array.isArray(homePageData.data.newestMovie.FilmUrl)) {
-      for (const filmUrlEntry of homePageData.data.newestMovie.FilmUrl) {
-        // 確保有 FilmNameID 且 FU_Type 為 0 (代表海報) 且 FU_FileName 存在
-        if (filmUrlEntry.FilmNameID && filmUrlEntry.FU_Type === 0 && filmUrlEntry.FU_FileName) {
-          // 嘗試構建完整的 URL，如果它不是完整的 URL
-          let fullPosterUrl = filmUrlEntry.FU_FileName;
-          if (!fullPosterUrl.startsWith('http')) {
-            // 假設需要加上基礎 URL，需要確認 skcinemas 的圖片路徑規則
-            // 暫時假設一個可能的基礎路徑，需要驗證！
-            fullPosterUrl = `https://www.skcinemas.com${fullPosterUrl.startsWith('/') ? '' : '/'}${fullPosterUrl}`;
-          }
-          posterMap.set(filmUrlEntry.FilmNameID, fullPosterUrl);
-        }
-      }
-    } else {
-      console.warn('[processSkcData] No FilmUrl data found in homePageData to extract posters.');
+  // filmId -> 詳情 (同一部電影的所有版本代碼都指向同一份詳情)
+  const detailByFilmId = new Map<string, SkcRawFilmDetail>();
+  for (const detail of filmDetails ?? []) {
+    for (const filmId of detail.relatedFilmIds) {
+      if (!detailByFilmId.has(filmId)) detailByFilmId.set(filmId, detail);
     }
-  } catch (e) {
-    console.error('[processSkcData] Error processing homePageData for posters:', e);
   }
-  console.log(`[processSkcData] Extracted ${posterMap.size} posters.`);
 
-  // 2. 遍歷 homePageData 中的電影列表
-  try {
-    // 檢查 Film 陣列是否存在
-    if (homePageData?.data?.newestMovie?.Film && Array.isArray(homePageData.data.newestMovie.Film)) {
-      for (const film of homePageData.data.newestMovie.Film) {
-        const filmId = film.FilmNameID;
-        if (!filmId) {
-          console.warn('[processSkcData] Skipping film with missing FilmNameID:', film);
-          continue;
-        }
+  // 以詳情頁為單位合併區塊；查不到詳情的區塊各自成為一部電影 (降級顯示)
+  const movieByKey = new Map<string, CombinedMovieData>();
+  const orderedKeys: string[] = [];
 
-        // 3. 從 sessionData 中查找對應電影的原始場次列表
-        let rawSessions: any[] = []; // 類型待細化
-        try {
-          // 檢查 Session 陣列是否存在
-          if (sessionData?.data?.Session && Array.isArray(sessionData.data.Session)) {
-            rawSessions = sessionData.data.Session.filter((s: any) => s.FilmNameID === filmId);
-          } else {
-            console.warn(`[processSkcData] No Session data found in sessionData for film ${filmId}.`);
-          }
-        } catch (e) {
-          console.error(`[processSkcData] Error filtering sessions for film ${filmId}:`, e);
-        }
+  for (const block of sessionBlocks) {
+    const detail = block.filmIds.map((filmId) => detailByFilmId.get(filmId)).find(Boolean);
+    const key = detail?.filmId ?? block.filmIds[0] ?? block.movieName;
 
-        // 4. 格式化場次 
-        const formattedSessions: SKCSession[] = [];
-        if (rawSessions.length > 0) {
-          for (const rawSession of rawSessions) {
-            // --- 修改: 添加 SessionID 的檢查 --- 
-            if (rawSession.BusinessDate && rawSession.ShowTime && rawSession.EndTime && rawSession.ScreenName && rawSession.SessionID) {
-              const sessionDateObject = new Date(rawSession.BusinessDate.replace(/-/g, '/'));
-              if (!sessionDateObject || isNaN(sessionDateObject.getTime())) {
-                console.warn(`[processSkcData] Invalid session date object for date '${rawSession.BusinessDate}', film ${filmId}. Skipping session.`);
-                continue;
-              }
-
-              const session: SKCSession = {
-                date: formatSessionDate(rawSession.BusinessDate),
-                weekday: getWeekdayString(sessionDateObject),
-                showtime: formatSessionTime(rawSession.ShowTime),
-                endTime: formatSessionTime(rawSession.EndTime),
-                filmType: rawSession.FilmType || '',
-                screenName: rawSession.ScreenName || '',
-                // --- 新增: 提取 sessionId --- 
-                sessionId: String(rawSession.SessionID) // 確保是字串
-              };
-              formattedSessions.push(session);
-            } else {
-              // --- 修改: 更新警告信息，包含 SessionID 缺失的可能性 ---
-              console.warn(`[processSkcData] Skipping session for film ${filmId} due to missing fields (incl. SessionID?):`, rawSession);
-            }
-          }
-          // 按日期和時間排序場次 (可選但推薦)
-          formattedSessions.sort((a, b) => {
-            // 比較日期字符串 (假設格式一致)
-            const dateComparison = a.date.localeCompare(b.date);
-            if (dateComparison !== 0) return dateComparison;
-            // 如果日期相同，比較時間字符串
-            return a.showtime.localeCompare(b.showtime);
-          });
-        }
-
-        // 5. 組合 CombinedMovieData 物件 (IMDb 欄位為 null)
-        if (formattedSessions.length > 0) {
-          formattedMovies.push({
-            filmNameID: filmId,
-            movieName: film.FilmName || 'Unknown Title',
-            englishTitle: film.TitleAlt || '',
-            posterUrl: posterMap.get(filmId) || null,
-            posterPath: null,
-            skRating: film.Rating || 'N/A',
-            ratingDescription: film.RatingDescription || '',
-            runtimeMinutes: parseInt(film.RunTime, 10) || 0,
-            sessions: formattedSessions,
-            // IMDb 欄位初始化為 null
-            imdbRating: null,
-            imdbUrl: null,
-            imdbRatingCount: null,
-            plot: null,
-            genres: null,
-            directors: null,
-            cast: null,
-            imdbStatus: 'failed' // 初始狀態設為 failed，等待後續 IMDb 處理更新
-          });
-        } else {
-          console.log(`[processSkcData] Skipping movie ${filmId} (${film.FilmName}) as it has no sessions found in sessionData.`);
-        }
+    if (!movieByKey.has(key)) {
+      if (!detail) {
+        console.warn(`[processSkcData] No detail page for '${block.movieName}' (${key}); using session page data only.`);
       }
-    } else {
-      console.warn('[processSkcData] No Film list found in homePageData.');
+      movieByKey.set(key, {
+        filmNameID: key,
+        movieName: detail?.movieName || block.movieName,
+        englishTitle: detail?.englishTitle ?? '',
+        posterUrl: detail?.posterUrl ?? null,
+        posterPath: null,
+        skRating: detail?.skRating || 'N/A',
+        ratingDescription: detail?.plot ?? '',
+        runtimeMinutes: detail?.runtimeMinutes ?? 0,
+        sessions: [],
+        imdbRating: null,
+        imdbUrl: null,
+        imdbRatingCount: null,
+        plot: null,
+        genres: null,
+        directors: null,
+        cast: null,
+        imdbStatus: 'failed' // 初始狀態，等待 IMDb 處理更新
+      });
+      orderedKeys.push(key);
     }
-  } catch (e) {
-    console.error('[processSkcData] Error processing film list or sessions:', e);
+
+    const movie = movieByKey.get(key)!;
+    for (const rawSession of block.sessions) {
+      const extras = detail?.sessionExtras?.[rawSession.sessionId];
+      movie.sessions.push({
+        date: rawSession.date,
+        weekday: rawSession.weekday,
+        showtime: rawSession.showtime,
+        endTime: extras?.endTime ?? '',
+        filmType: rawSession.filmType,
+        screenName: extras?.screenName ?? '',
+        sessionId: rawSession.sessionId
+      });
+    }
   }
 
-  // --- 資料處理邏輯結束 --- 
+  const movies = orderedKeys
+    .map((key) => movieByKey.get(key)!)
+    .filter((movie) => movie.sessions.length > 0);
 
-  console.log(`[processSkcData] Data processing complete. Found ${formattedMovies.length} movies (initial).`);
-  return formattedMovies;
+  movies.forEach((movie) => sortSessions(movie.sessions));
+
+  console.log(`[processSkcData] Processing complete. ${movies.length} movies with sessions.`);
+  return movies;
 }
