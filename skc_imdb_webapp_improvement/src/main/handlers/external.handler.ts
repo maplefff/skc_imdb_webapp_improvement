@@ -12,7 +12,7 @@ export const handleOpenExternalUrl: OpenExternalUrlHandler = async (_event, url)
     console.log(`[IPC Handler] Received request to open external URL: ${url}`);
 
     // 安全性檢查：只允許 SKCinema 訂票頁、IMDb 電影頁和 Google 搜尋
-    const isSkcBookingUrl = url?.startsWith('https://www.skcinemas.com/booking/seats?');
+    const isSkcBookingUrl = url?.startsWith('https://www.skcinemas.com/Booking/Booking?');
     const isImdbTitleUrl = url?.startsWith('https://www.imdb.com/title/');
     const isGoogleSearchUrl = url?.startsWith('https://www.google.com/search?q=');
 

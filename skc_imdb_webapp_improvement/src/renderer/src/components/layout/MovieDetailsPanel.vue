@@ -5,6 +5,7 @@ import { Star, Picture as IconPicture, Film, Link } from '@element-plus/icons-vu
 import type { CombinedMovieData, SKCSession } from '@/shared/types/ipc.types';
 // Import necessary formatters (ensure path is correct relative to this file)
 import { formatRuntime, formatGroupDateTitle } from '../../utils/formatters'
+import { SKC_LOCATION_CODE } from '../../../../shared/constants'
 
 // --- Define Props ---
 defineProps({
@@ -99,11 +100,17 @@ async function openLink(url: string | null | undefined) {
 }
 
 function handleSessionClick(session: SKCSession) {
-  if (!session?.sessionId) {
-    console.warn('[MovieDetailsPanel] Session ID is missing, cannot build booking link.', session);
+  // 新版官網訂票頁需同時帶 filmId 與 sessionId (取自場次按鈕的 data-action-url)
+  if (!session?.sessionId || !session?.filmId) {
+    console.warn('[MovieDetailsPanel] Session ID or film ID is missing, cannot build booking link.', session);
     return;
   }
-  const targetUrl = `https://www.skcinemas.com/booking/seats?c=1004&s=${session.sessionId}`;
+  const params = new URLSearchParams({
+    cinemaId: SKC_LOCATION_CODE.QINGPU,
+    filmId: session.filmId,
+    sessionId: session.sessionId
+  });
+  const targetUrl = `https://www.skcinemas.com/Booking/Booking?${params.toString()}`;
   openLink(targetUrl);
 }
 

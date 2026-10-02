@@ -400,6 +400,7 @@ export function processSkcData(rawData: SkcRawDataPayload): CombinedMovieData[] 
         endTime: extras?.endTime ?? '',
         filmType: rawSession.filmType,
         screenName: extras?.screenName ?? '',
+        filmId: rawSession.filmId,
         sessionId: rawSession.sessionId
       });
     }

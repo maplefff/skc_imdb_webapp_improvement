@@ -12,6 +12,7 @@ export interface SKCSession {
     endTime: string; // 格式化後: HH:mm
     filmType: string; // 影片類型 (例如: 數位版, LUXE, DolbyCinema)
     screenName: string; // 影廳名稱 (例如: 7廳, Luxe, Sealy)
+    filmId: string; // 影片版本代碼 (例如: HO00004817)，訂票連結需要
     sessionId: string;
 }
 

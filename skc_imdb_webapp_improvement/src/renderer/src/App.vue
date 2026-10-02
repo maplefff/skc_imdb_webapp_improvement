@@ -217,24 +217,6 @@ const groupedAndSortedSessions = computed(() => {
 // --- 新增: 清理 Loading Progress Listener --- 
 let cleanupLoadingProgressListener: (() => void) | null = null;
 
-// --- 新增: 處理場次點擊的方法 ---
-// function handleSessionClick(session: SKCSession) {
-//   if (!session?.sessionId) {
-//     console.warn('Session ID is missing, cannot open link.', session);
-//     return;
-//   }
-//   const targetUrl = `https://www.skcinemas.com/booking/seats?c=1004&s=${session.sessionId}`;
-//   console.log('Opening external URL:', targetUrl);
-//   if (window.ipc?.openExternalUrl) {
-//     window.ipc.openExternalUrl(targetUrl).catch(error => {
-//       console.error('Failed to open external URL via IPC:', error);
-//       // 可以考慮在這裡顯示一個錯誤提示給用戶
-//     });
-//   } else {
-//     console.error('window.ipc.openExternalUrl is not available.');
-//   }
-// }
-
 // --- Lifecycle Hook ---
 
 onMounted(() => {

@@ -28,7 +28,7 @@ const localShowTodayOnly = computed({
     <!-- Header Content from App.vue -->
     <div class="header-content">
       <h1 class="header-title-wrapper">
-        新光影城電影列表 — <a href="https://www.skcinemas.com/sessions?c=1004" target="_blank" rel="noopener noreferrer" class="header-title-link">青埔影院<el-icon class="header-link-icon-inline"><Link /></el-icon></a>
+        新光影城電影列表 — <a href="https://www.skcinemas.com/Sessions/Sessions?cinemaId=1004" target="_blank" rel="noopener noreferrer" class="header-title-link">青埔影院<el-icon class="header-link-icon-inline"><Link /></el-icon></a>
       </h1>
       <!-- 'Show Today Only' Switch -->
       <div class="show-today-switch-container">
